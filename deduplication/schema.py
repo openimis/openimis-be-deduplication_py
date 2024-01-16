@@ -33,7 +33,7 @@ class Query(graphene.ObjectType):
         for row in aggr:
             individual_columns = [f'individual__{column}' for column in individual_columns]
             count = row.pop('id_count')
-            row_column_values = {column.split('__', 1)[1] if column in individual_columns else column: row[column] for
+            row_column_values = {column.split('__', 1)[1] if column in individual_columns else column: str(row[column]) for
                                  column in row}
             rows.append(DeduplicationSummaryRowGQLType(column_values=row_column_values, count=count))
 
