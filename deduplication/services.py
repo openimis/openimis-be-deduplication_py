@@ -108,7 +108,6 @@ def on_deduplication_task_complete_service_handler(service):
             business_event = task['business_event']
             if result and result['success'] \
                     and task['status'] == Task.Status.COMPLETED:
-                # Extracting `operation` part from `ServiceName.operation`
                 operation = business_event.split(".")[1]
                 if hasattr(service, operation):
                     user = User.objects.get(id=result['data']['user']['id'])
