@@ -3,6 +3,7 @@ import json
 import graphene
 from django.contrib.auth.models import AnonymousUser
 
+from deduplication.gql_mutations import CreateDeduplicationReviewMutation
 from deduplication.gql_queries import DeduplicationSummaryGQLType, DeduplicationSummaryRowGQLType
 
 
@@ -33,9 +34,11 @@ class Query(graphene.ObjectType):
         for row in aggr:
             individual_columns = [f'individual__{column}' for column in individual_columns]
             count = row.pop('id_count')
-            row_column_values = {column.split('__', 1)[1] if column in individual_columns else column: str(row[column]) for
+            ids = row.pop('ids')
+            row_column_values = {column.split('__', 1)[1] if column in individual_columns else column: str(row[column])
+                                 for
                                  column in row}
-            rows.append(DeduplicationSummaryRowGQLType(column_values=row_column_values, count=count))
+            rows.append(DeduplicationSummaryRowGQLType(column_values=row_column_values, count=count, ids=ids))
 
         return DeduplicationSummaryGQLType(rows=rows)
 
@@ -43,3 +46,7 @@ class Query(graphene.ObjectType):
     def _check_permissions(user, perms):
         if type(user) is AnonymousUser or not user.id or not user.has_perms(perms):
             raise PermissionError("Unauthorized")
+
+
+class Mutation(graphene.ObjectType):
+    create_deduplication_tasks = CreateDeduplicationReviewMutation.Field()

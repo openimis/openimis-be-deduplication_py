@@ -1,13 +1,15 @@
 from django.apps import AppConfig
 
 DEFAULT_CONFIG = {
-
+    "gql_create_deduplication_review_perms": ["172001"],
 }
 
 
 class DeduplicationConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'deduplication'
+
+    gql_create_deduplication_review_perms = None
 
     def ready(self):
         from core.models import ModuleConfiguration
