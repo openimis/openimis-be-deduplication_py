@@ -28,7 +28,7 @@ class CreateDeduplicationReviewTasksService:
                 'source': "CreateDeduplicationReviewTasksService",
                 'business_data_serializer': 'deduplication.CreateDeduplicationReviewTasksService'
                                             '.create_beneficiary_duplication_task_serializer',
-                'business_event': '',  # to be filled
+                'business_event': '',  #TODO to be filled in CM-449
                 'data': task_data,
             }
             tasks.append(task_service.create(task_data))
@@ -40,7 +40,7 @@ class CreateDeduplicationReviewTasksService:
         }
 
     def create_beneficiary_duplication_task_serializer(self, key, value):
-        # think of what data should be displayed when creating frontend
+        #TODO think of what data should be displayed when creating frontend CM-458
         return value
 
 
