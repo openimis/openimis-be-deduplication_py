@@ -1,3 +1,4 @@
+import copy
 import logging
 from functools import lru_cache
 from typing import List, Union, Tuple, Type
@@ -9,9 +10,12 @@ from django.db.models import Count, Q
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
 
-from core.models import ExtendableModel, HistoryModel, User
+from core.models import ExtendableModel, HistoryModel, User, HistoryBusinessModel
+from core.services.utils import model_representation
+from individual.models import Individual
+from social_protection.models import Beneficiary, BenefitPlan
 from tasks_management.models import Task
-from tasks_management.services import TaskService
+from tasks_management.services import TaskService, non_serializable_types
 
 logger = logging.getLogger(__name__)
 
@@ -23,15 +27,19 @@ class CreateDeduplicationReviewTasksService:
     def create_beneficiary_duplication_tasks(self, summary):
         task_service = TaskService(self.user)
         tasks = []
+
         for task_data in summary:
             task_data = {
                 'source': "CreateDeduplicationReviewTasksService",
-                'business_data_serializer': 'deduplication.CreateDeduplicationReviewTasksService'
-                                            '.create_beneficiary_duplication_task_serializer',
-                'business_event': '',  #TODO to be filled in CM-449
+                'business_data_serializer': (
+                    'deduplication.services.CreateDeduplicationReviewTasksService'
+                    '.create_beneficiary_duplication_task_serializer'
+                ),
+                'business_event': '',  # TODO to be filled in CM-449
                 'data': task_data,
             }
             tasks.append(task_service.create(task_data))
+
         return {
             "success": True,
             "message": "Ok",
@@ -39,14 +47,93 @@ class CreateDeduplicationReviewTasksService:
             "data": tasks,
         }
 
-    def create_beneficiary_duplication_task_serializer(self, key, value):
-        #TODO think of what data should be displayed when creating frontend CM-458
-        return value
+    def create_beneficiary_duplication_task_serializer(self, data):
+        def serialize_individual(value):
+            excluded_fields = self._get_excluded_model_fields()
+            individual = Individual.objects.filter(id=value).first()
+            individual_dict = model_representation(individual)
+
+            exclude_fields_from_dict(individual_dict, excluded_fields)
+
+            for k, v in individual_dict.items():
+                individual_dict[k] = serialize_value(v)
+
+            return individual_dict
+
+        def serialize_benefit_plan(value):
+            benefit_plan = BenefitPlan.objects.filter(id=value).first()
+            return benefit_plan.__str__()
+
+        def serialize_value(value):
+            if any(isinstance(value, t) for t in non_serializable_types):
+                return str(value)
+            return value
+
+        def exclude_fields_from_dict(dictionary, fields_to_exclude):
+            for field in fields_to_exclude:
+                dictionary.pop(field, None)
+
+        def beneficiary_serializer(data):
+            for key, value in data.items():
+                if key == 'individual':
+                    data[key] = serialize_individual(value)
+                elif key == 'benefit_plan':
+                    data[key] = serialize_benefit_plan(value)
+                else:
+                    data[key] = serialize_value(value)
+            return data
+
+        def get_headers(benefit_plan):
+            individual_fields = [field.name for field in Individual._meta.fields]
+            beneficiary_fields = [field.name for field in Beneficiary._meta.fields]
+            beneficiary_data_schema_fields = list(benefit_plan.beneficiary_data_schema.get('properties', {}).keys())
+
+            excluded_fields = self._get_excluded_model_fields()
+            headers = [field for field in individual_fields + beneficiary_fields + beneficiary_data_schema_fields if
+                       field not in excluded_fields]
+
+            return headers
+
+
+
+        def serializer(key, value):
+            excluded_fields = self._get_excluded_model_fields(exclude_json_ext=False)
+            if key == 'ids':
+                beneficiary_list = []
+                beneficiaries = Beneficiary.objects.filter(id__in=value)
+
+                for beneficiary in beneficiaries:
+                    beneficiary_dict = model_representation(beneficiary)
+                    exclude_fields_from_dict(beneficiary_dict, excluded_fields)
+
+                    beneficiary_dict = beneficiary_serializer(beneficiary_dict)
+                    beneficiary_list.append(beneficiary_dict)
+
+                return beneficiary_list
+            else:
+                return serialize_value(value)
+
+        serialized_data = copy.deepcopy(data)
+        beneficiary_id = serialized_data['ids'][0]
+        benefit_plan = BenefitPlan.objects.filter(beneficiary__id=beneficiary_id).first()
+        for key, value in data.items():
+            serialized_data[key] = serializer(key, value)
+
+        serialized_data['headers'] = get_headers(benefit_plan)
+
+        return serialized_data
+
+    @lru_cache(maxsize=None)
+    def _get_excluded_model_fields(self, exclude_json_ext=True):
+        fields_to_exclude = set(field.name for field in HistoryBusinessModel._meta.fields)
+        if not exclude_json_ext:
+            fields_to_exclude.discard('json_ext')
+
+        return fields_to_exclude
+
 
 
 def get_beneficiary_duplication_aggregation(columns: List[str] = None, benefit_plan_id: str = None):
-    from social_protection.models import Beneficiary
-
     if not columns:
         raise ValueError("At least one column required")
     if not benefit_plan_id:
