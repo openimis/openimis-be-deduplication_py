@@ -2,6 +2,7 @@ import copy
 import logging
 from functools import lru_cache
 from typing import List, Union, Tuple, Type
+from datetime import datetime
 
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.exceptions import FieldDoesNotExist
@@ -9,11 +10,14 @@ from django.db import models
 from django.db.models import Count, Q
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
+from django.db import transaction
 
+from core.datetimes.ad_datetime import AdDate
 from core.models import ExtendableModel, HistoryModel, User, HistoryBusinessModel
 from core.services.utils import model_representation
 from individual.models import Individual
 from social_protection.models import Beneficiary, BenefitPlan
+from tasks_management.apps import TasksManagementConfig
 from tasks_management.models import Task
 from tasks_management.services import TaskService, non_serializable_types
 
@@ -31,11 +35,12 @@ class CreateDeduplicationReviewTasksService:
         for task_data in summary:
             task_data = {
                 'source': "CreateDeduplicationReviewTasksService",
+                'executor_action_event': TasksManagementConfig.default_executor_event,
                 'business_data_serializer': (
                     'deduplication.services.CreateDeduplicationReviewTasksService'
                     '.create_beneficiary_duplication_task_serializer'
                 ),
-                'business_event': '',  # TODO to be filled in CM-449
+                'business_event': '',
                 'data': task_data,
             }
             tasks.append(task_service.create(task_data))
@@ -89,15 +94,15 @@ class CreateDeduplicationReviewTasksService:
             beneficiary_data_schema_fields = list(benefit_plan.beneficiary_data_schema.get('properties', {}).keys())
 
             excluded_fields = self._get_excluded_model_fields()
+            excluded_fields.add('benefit_plan')
             headers = [field for field in individual_fields + beneficiary_fields + beneficiary_data_schema_fields if
                        field not in excluded_fields]
 
             return headers
 
-
-
         def serializer(key, value):
             excluded_fields = self._get_excluded_model_fields(exclude_json_ext=False)
+            excluded_fields.discard("date_created")
             if key == 'ids':
                 beneficiary_list = []
                 beneficiaries = Beneficiary.objects.filter(id__in=value)
@@ -130,7 +135,6 @@ class CreateDeduplicationReviewTasksService:
             fields_to_exclude.discard('json_ext')
 
         return fields_to_exclude
-
 
 
 def get_beneficiary_duplication_aggregation(columns: List[str] = None, benefit_plan_id: str = None):
@@ -187,19 +191,76 @@ def _is_model_column(model: Union[Type[ExtendableModel], Type[HistoryModel]], co
         return False
 
 
-def on_deduplication_task_complete_service_handler(service):
+@transaction.atomic
+def merge_duplicate_beneficiaries(task_data, user_id):
+    individual_fields = {"first_name", "last_name", "dob"}
+    beneficiary_fields = {"status"}
+
+    user = User.objects.get(id=user_id)
+    additional_resolve_data = task_data.get("json_ext", {}).get("additional_resolve_data", {})
+    merge_data = list(additional_resolve_data.values())[0]
+    field_values = merge_data.get('values', {})
+    beneficiary_ids = merge_data.get("beneficiaryIds", [])
+
+    oldest_record_beneficiary = Beneficiary.objects.filter(id__in=beneficiary_ids).order_by('date_created').first()
+    if oldest_record_beneficiary is None:
+        return  # No beneficiaries found to merge
+
+    beneficiaries_to_delete = Beneficiary.objects.filter(id__in=beneficiary_ids).exclude(
+        id=oldest_record_beneficiary.id)
+
+    individual_kwargs = {}
+    beneficiary_kwargs = {}
+    json_kwargs = {}
+
+    for key, value in field_values.items():
+        if key in individual_fields:
+            individual_kwargs[key] = value
+        elif key in beneficiary_fields:
+            beneficiary_kwargs[key] = value
+        else:
+            json_kwargs[key] = value
+
+    def update_instance(instance, instance_kwargs):
+        is_instance_updated = False
+        if instance_kwargs:
+            for field, field_value in instance_kwargs.items():
+                if field == 'dob':
+                    date_object = datetime.strptime(field_value, "%Y-%m-%d").date()
+                    field_value = AdDate(date_object.year, date_object.month, date_object.day)
+                if getattr(instance, field) != field_value:
+                    is_instance_updated = True
+                    setattr(instance, field, field_value)
+            if is_instance_updated:
+                instance.save(username=user.username)
+
+    update_instance(oldest_record_beneficiary.individual, individual_kwargs)
+    update_instance(oldest_record_beneficiary, beneficiary_kwargs)
+
+    is_updated = False
+    if json_kwargs:
+        json_ext = oldest_record_beneficiary.json_ext or {}
+        for key, value in json_kwargs.items():
+            if json_ext.get(key) != value:
+                is_updated = True
+                json_ext[key] = value
+        oldest_record_beneficiary.json_ext = json_ext
+        if is_updated:
+            oldest_record_beneficiary.save(username=user.username)
+
+    # needs to be done this way because overridden .delete() does not work on qs
+    for beneficiary_to_delete in beneficiaries_to_delete:
+        beneficiary_to_delete.delete(username=user.username)
+
+
+def on_deduplication_task_complete_service_handler():
     def func(**kwargs):
         try:
             result = kwargs.get('result', {})
             task = result['data']['task']
-            business_event = task['business_event']
-            if result and result['success'] \
-                    and task['status'] == Task.Status.COMPLETED:
-                operation = business_event.split(".")[1]
-                if hasattr(service, operation):
-                    user = User.objects.get(id=result['data']['user']['id'])
-                    data = task['data']['incoming_data']
-                    getattr(service(user), operation)(data)
+            user_id = result['data']['user']["id"]
+            if result and result['success'] and task['status'] == Task.Status.COMPLETED:
+                merge_duplicate_beneficiaries(task, user_id)
         except Exception as e:
             logger.error("Error while executing on_task_complete", exc_info=e)
             return [str(e)]
