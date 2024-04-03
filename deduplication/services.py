@@ -191,12 +191,40 @@ def _is_model_column(model: Union[Type[ExtendableModel], Type[HistoryModel]], co
         return False
 
 
+def _update_instance_if_different_value(instance, instance_kwargs, user):
+    is_instance_updated = False
+    if instance_kwargs:
+        for field, field_value in instance_kwargs.items():
+            if field == 'dob':
+                date_object = datetime.strptime(field_value, "%Y-%m-%d").date()
+                field_value = AdDate(date_object.year, date_object.month, date_object.day)
+            if getattr(instance, field) != field_value:
+                is_instance_updated = True
+                setattr(instance, field, field_value)
+        if is_instance_updated:
+            instance.save(username=user.username)
+
+
+def _update_instance_json_ext_if_different_value(instance, json_ext_kwargs, user):
+    is_instance_updated = False
+    if json_ext_kwargs:
+        json_ext = instance.json_ext or {}
+        for key, value in json_ext_kwargs.items():
+            if json_ext.get(key) != value:
+                is_instance_updated = True
+                json_ext[key] = value
+        instance.json_ext = json_ext
+        if is_instance_updated:
+            instance.save(username=user.username)
+
+
 @transaction.atomic
 def merge_duplicate_beneficiaries(task_data, user_id):
     individual_fields = {"first_name", "last_name", "dob"}
     beneficiary_fields = {"status"}
 
     user = User.objects.get(id=user_id)
+    # additional_resolve_data is a key in task__json_ext that stores data selected by user during resolving a task
     additional_resolve_data = task_data.get("json_ext", {}).get("additional_resolve_data", {})
     merge_data = list(additional_resolve_data.values())[0]
     field_values = merge_data.get('values', {})
@@ -221,32 +249,9 @@ def merge_duplicate_beneficiaries(task_data, user_id):
         else:
             json_kwargs[key] = value
 
-    def update_instance(instance, instance_kwargs):
-        is_instance_updated = False
-        if instance_kwargs:
-            for field, field_value in instance_kwargs.items():
-                if field == 'dob':
-                    date_object = datetime.strptime(field_value, "%Y-%m-%d").date()
-                    field_value = AdDate(date_object.year, date_object.month, date_object.day)
-                if getattr(instance, field) != field_value:
-                    is_instance_updated = True
-                    setattr(instance, field, field_value)
-            if is_instance_updated:
-                instance.save(username=user.username)
-
-    update_instance(oldest_record_beneficiary.individual, individual_kwargs)
-    update_instance(oldest_record_beneficiary, beneficiary_kwargs)
-
-    is_updated = False
-    if json_kwargs:
-        json_ext = oldest_record_beneficiary.json_ext or {}
-        for key, value in json_kwargs.items():
-            if json_ext.get(key) != value:
-                is_updated = True
-                json_ext[key] = value
-        oldest_record_beneficiary.json_ext = json_ext
-        if is_updated:
-            oldest_record_beneficiary.save(username=user.username)
+    _update_instance_if_different_value(oldest_record_beneficiary.individual, individual_kwargs, user)
+    _update_instance_if_different_value(oldest_record_beneficiary, beneficiary_kwargs, user)
+    _update_instance_json_ext_if_different_value(oldest_record_beneficiary, json_kwargs, user)
 
     # needs to be done this way because overridden .delete() does not work on qs
     for beneficiary_to_delete in beneficiaries_to_delete:
