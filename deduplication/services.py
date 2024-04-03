@@ -210,9 +210,15 @@ def _update_instance_json_ext_if_different_value(instance, json_ext_kwargs, user
     if json_ext_kwargs:
         json_ext = instance.json_ext or {}
         for key, value in json_ext_kwargs.items():
-            if json_ext.get(key) != value:
+            current_value = json_ext.get(key)
+            if not current_value and not value:
+                continue
+            if current_value != value:
                 is_instance_updated = True
-                json_ext[key] = value
+                if value:
+                    json_ext[key] = value
+                else:
+                    del json_ext[key]
         instance.json_ext = json_ext
         if is_instance_updated:
             instance.save(username=user.username)
