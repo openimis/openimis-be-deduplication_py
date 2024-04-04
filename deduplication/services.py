@@ -14,7 +14,8 @@ from django.db import transaction
 
 from core.datetimes.ad_datetime import AdDate
 from core.models import ExtendableModel, HistoryModel, User, HistoryBusinessModel
-from core.services.utils import model_representation
+from core.services.utils import model_representation, output_exception
+from deduplication.validations import CreateDeduplicationReviewTasksValidation
 from individual.models import Individual
 from social_protection.models import Beneficiary, BenefitPlan
 from tasks_management.apps import TasksManagementConfig
@@ -25,32 +26,34 @@ logger = logging.getLogger(__name__)
 
 
 class CreateDeduplicationReviewTasksService:
-    def __init__(self, user):
+    def __init__(self, user, validation_class=CreateDeduplicationReviewTasksValidation):
         self.user = user
+        self.validation_class = validation_class
 
     def create_beneficiary_duplication_tasks(self, summary):
-        task_service = TaskService(self.user)
-        tasks = []
+        try:
+            task_service = TaskService(self.user)
+            tasks = []
 
-        for task_data in summary:
-            task_data = {
-                'source': "CreateDeduplicationReviewTasksService",
-                'executor_action_event': TasksManagementConfig.default_executor_event,
-                'business_data_serializer': (
-                    'deduplication.services.CreateDeduplicationReviewTasksService'
-                    '.create_beneficiary_duplication_task_serializer'
-                ),
-                'business_event': '',
-                'data': task_data,
+            for task_data in summary:
+                self.validation_class.validate_create_deduplication_task(task_data, self.get_class_name())
+                create_task_data = {
+                    'source': self.get_class_name(),
+                    'executor_action_event': TasksManagementConfig.default_executor_event,
+                    'business_data_serializer': (
+                        'deduplication.services.CreateDeduplicationReviewTasksService'
+                        '.create_beneficiary_duplication_task_serializer'
+                    ),
+                    'business_event': '',
+                    'data': task_data,
+                }
+                tasks.append(task_service.create(create_task_data))
+
+            return {
+                "success": True, "message": "Ok", "detail": "", "data": tasks,
             }
-            tasks.append(task_service.create(task_data))
-
-        return {
-            "success": True,
-            "message": "Ok",
-            "detail": "",
-            "data": tasks,
-        }
+        except Exception as exc:
+            return output_exception(model_name='', method="create_beneficiary_duplication_tasks", exception=exc)
 
     def create_beneficiary_duplication_task_serializer(self, data):
         def serialize_individual(value):
@@ -103,6 +106,7 @@ class CreateDeduplicationReviewTasksService:
         def serializer(key, value):
             excluded_fields = self._get_excluded_model_fields(exclude_json_ext=False)
             excluded_fields.discard("date_created")
+            excluded_fields.discard("is_deleted")
             if key == 'ids':
                 beneficiary_list = []
                 beneficiaries = Beneficiary.objects.filter(id__in=value)
@@ -127,6 +131,10 @@ class CreateDeduplicationReviewTasksService:
         serialized_data['headers'] = get_headers(benefit_plan)
 
         return serialized_data
+
+    @classmethod
+    def get_class_name(cls):
+        return cls.__name__
 
     @lru_cache(maxsize=None)
     def _get_excluded_model_fields(self, exclude_json_ext=True):
@@ -264,16 +272,15 @@ def merge_duplicate_beneficiaries(task_data, user_id):
         beneficiary_to_delete.delete(username=user.username)
 
 
-def on_deduplication_task_complete_service_handler():
-    def func(**kwargs):
-        try:
-            result = kwargs.get('result', {})
-            task = result['data']['task']
-            user_id = result['data']['user']["id"]
-            if result and result['success'] and task['status'] == Task.Status.COMPLETED:
-                merge_duplicate_beneficiaries(task, user_id)
-        except Exception as e:
-            logger.error("Error while executing on_task_complete", exc_info=e)
-            return [str(e)]
-
-    return func
+def on_deduplication_task_complete_service_handler(**kwargs):
+    try:
+        result = kwargs.get('result', {})
+        task = result['data']['task']
+        source = result['data']['task']["source"]
+        user_id = result['data']['user']["id"]
+        if (result and result['success'] and task['status'] == Task.Status.COMPLETED
+                and source == CreateDeduplicationReviewTasksService.get_class_name()):
+            merge_duplicate_beneficiaries(task, user_id)
+    except Exception as e:
+        logger.error("Error while executing on_task_complete", exc_info=e)
+        return [str(e)]

@@ -6,6 +6,6 @@ from deduplication.services import on_deduplication_task_complete_service_handle
 def bind_service_signals():
     bind_service_signal(
         'task_service.complete_task',
-        on_deduplication_task_complete_service_handler(),
+        on_deduplication_task_complete_service_handler,
         bind_type=ServiceSignalBindType.AFTER
     )
