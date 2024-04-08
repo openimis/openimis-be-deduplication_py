@@ -1,0 +1,14 @@
+msgid "deduplication.validations.CreateDeduplicationReviewTasksValidation.count_missing"
+msgstr "Count missing in task data."
+
+msgid "deduplication.validations.CreateDeduplicationReviewTasksValidation.ids_missing"
+msgstr "Ids missing in task data."
+
+msgid "deduplication.validations.CreateDeduplicationReviewTasksValidation.column_values_missing"
+msgstr "Column values missing in task data."
+
+msgid "deduplication.validations.CreateDeduplicationReviewTasksValidation.not_existing_ids"
+msgstr "No beneficiaries for ids: %(ids)"
+
+msgid "deduplication.validations.CreateDeduplicationReviewTasksValidation.beneficiary_in_task"
+msgstr "Beneficiaries: %(beneficiaries) already in deduplication task."
