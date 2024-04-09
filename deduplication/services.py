@@ -152,7 +152,7 @@ def get_beneficiary_duplication_aggregation(columns: List[str] = None, benefit_p
         raise ValueError("Benefit Plan not specified")
 
     db_columns, json_keys = _resolve_columns(Beneficiary, columns)
-    filters = [Q(benefit_plan_id=benefit_plan_id)]
+    filters = [Q(benefit_plan_id=benefit_plan_id), Q(is_deleted=False)]
 
     return get_duplication_aggregation(Beneficiary, columns=db_columns, json_ext_keys=json_keys, filters=filters)
 
