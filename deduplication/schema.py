@@ -27,15 +27,13 @@ class Query(graphene.ObjectType):
 
         individual_columns = ['first_name', 'last_name', 'dob']
         columns = [f'individual__{column}' if column in individual_columns else column for column in columns]
-
         aggr = get_beneficiary_duplication_aggregation(columns=columns, benefit_plan_id=benefit_plan_id)
-
         rows = list()
         for row in aggr:
             individual_columns = [f'individual__{column}' for column in individual_columns]
             count = row.pop('id_count')
             ids = row.pop('ids')
-            row_column_values = {column.split('__', 1)[1] if column in individual_columns else column: str(row[column])
+            row_column_values = {column: str(row[column])
                                  for
                                  column in row}
             rows.append(DeduplicationSummaryRowGQLType(column_values=row_column_values, count=count, ids=ids))
