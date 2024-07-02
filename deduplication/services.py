@@ -7,7 +7,7 @@ from datetime import datetime
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.exceptions import FieldDoesNotExist
 from django.db import models
-from django.db.models import Count, Q
+from django.db.models import Count, Q, F
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
 from django.db import transaction
@@ -17,6 +17,8 @@ from core.models import ExtendableModel, HistoryModel, User, HistoryBusinessMode
 from core.services.utils import model_representation, output_exception
 from deduplication.validations import CreateDeduplicationReviewTasksValidation
 from individual.models import Individual
+from payroll.models import BenefitConsumption, BenefitConsumptionStatus, \
+    PayrollBenefitConsumption, PayrollStatus
 from social_protection.models import Beneficiary, BenefitPlan
 from tasks_management.apps import TasksManagementConfig
 from tasks_management.models import Task
@@ -157,10 +159,30 @@ def get_beneficiary_duplication_aggregation(columns: List[str] = None, benefit_p
     return get_duplication_aggregation(Beneficiary, columns=db_columns, json_ext_keys=json_keys, filters=filters)
 
 
+def get_benefit_consumption_duplication_aggregation(columns: List[str] = None, payment_cycle_id: str = None):
+    if not columns:
+        raise ValueError("At least one column required")
+    if not payment_cycle_id:
+        raise ValueError("Payment Cycle not specified")
+
+    db_columns, json_keys = _resolve_columns(Individual, columns)
+    benefit_consumption_ids = PayrollBenefitConsumption.objects.filter(
+        payroll__payment_cycle_id=payment_cycle_id,
+        payroll__status=PayrollStatus.PENDING_APPROVAL
+    ).values_list('benefit_id', flat=True)
+
+    filters = [
+        Q(id__in=benefit_consumption_ids),
+        Q(is_deleted=False),
+        Q(status=BenefitConsumptionStatus.ACCEPTED)
+    ]
+
+    return get_duplication_benefit_aggregation(BenefitConsumption, columns=db_columns, json_ext_keys=json_keys, filters=filters)
+
+
 def get_duplication_aggregation(model: Union[Type[ExtendableModel], Type[HistoryModel]], columns: List[str] = None,
                                 json_ext_keys: List[str] = None, filters: List = None):
     queryset = model.objects.filter(*filters)
-
     if json_ext_keys:
         json_ext_aggr = {key: Cast(KeyTextTransform(key, 'json_ext'), models.TextField())
                          for key in json_ext_keys}
@@ -170,10 +192,28 @@ def get_duplication_aggregation(model: Union[Type[ExtendableModel], Type[History
 
     if not values:
         raise ValueError("At least one column required")
-
     queryset = queryset.values(*values).annotate(id_count=Count('id'), ids=ArrayAgg('id', distinct=True)).filter(
         id_count__gt=1).order_by()
 
+    return queryset
+
+
+def get_duplication_benefit_aggregation(model: Union[Type[ExtendableModel], Type[HistoryModel]], columns: List[str] = None,
+                                json_ext_keys: List[str] = None, filters: List = None):
+    queryset = model.objects.filter(*filters).select_related('individual')
+    if json_ext_keys:
+        json_ext_aggr = {key: Cast(KeyTextTransform(key, 'individual__json_ext'), models.TextField())
+                         for key in json_ext_keys}
+        queryset = queryset.annotate(**json_ext_aggr)
+
+    individual_columns = ['first_name', 'last_name', 'dob']
+    columns = [f'individual__{column}' if column in individual_columns else column for column in columns]
+    values = (columns or list()) + (json_ext_keys or list())
+    if not values:
+        raise ValueError("At least one column required")
+
+    queryset = queryset.values(*values).annotate(id_count=Count('id'), ids=ArrayAgg('id', distinct=True)).filter(
+        id_count__gt=1).order_by()
     return queryset
 
 
@@ -181,7 +221,6 @@ def _resolve_columns(model: Union[Type[ExtendableModel], Type[HistoryModel]], co
     List[str], List[str]]:
     fields = []
     json_fields = []
-
     for column in columns:
         if _is_model_column(model, column.split('__', 1)[0]):
             fields.append(column)
