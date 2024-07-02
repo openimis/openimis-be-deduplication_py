@@ -16,6 +16,12 @@ class Query(graphene.ObjectType):
         benefit_plan_id=graphene.UUID(required=True),
     )
 
+    benefit_deduplication_summary = graphene.Field(
+        DeduplicationSummaryGQLType,
+        columns=graphene.List(graphene.String, required=True),
+        payment_cycle_id=graphene.ID(required=False)
+    )
+
     def resolve_beneficiary_deduplication_summary(self, info, columns=None, benefit_plan_id=None, **kwargs):
         from social_protection.apps import SocialProtectionConfig
         from deduplication.services import get_beneficiary_duplication_aggregation
@@ -36,6 +42,31 @@ class Query(graphene.ObjectType):
             row_column_values = {column: str(row[column])
                                  for
                                  column in row}
+            rows.append(DeduplicationSummaryRowGQLType(column_values=row_column_values, count=count, ids=ids))
+
+        return DeduplicationSummaryGQLType(rows=rows)
+
+    def resolve_benefit_deduplication_summary(self, info, columns=None, payment_cycle_id=None, **kwargs):
+        from social_protection.apps import SocialProtectionConfig
+        from deduplication.services import get_benefit_consumption_duplication_aggregation
+
+        # Check permissions
+        Query._check_permissions(info.context.user, SocialProtectionConfig.gql_beneficiary_search_perms)
+
+        if not columns:
+            return ["deduplication.validation.no_columns_provided"]
+
+        # Add prefix to individual columns
+        individual_columns = ['first_name', 'last_name', 'dob']
+        columns = [f'{column}' if column in individual_columns else column for column in columns]
+
+        # Fetch the aggregation data
+        aggr = get_benefit_consumption_duplication_aggregation(columns=columns, payment_cycle_id=payment_cycle_id)
+        rows = []
+        for row in aggr:
+            count = row.pop('id_count')
+            ids = row.pop('ids')
+            row_column_values = {column: str(row[column]) for column in row}
             rows.append(DeduplicationSummaryRowGQLType(column_values=row_column_values, count=count, ids=ids))
 
         return DeduplicationSummaryGQLType(rows=rows)
