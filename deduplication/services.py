@@ -15,7 +15,8 @@ from django.db import transaction
 from core.datetimes.ad_datetime import AdDate
 from core.models import ExtendableModel, HistoryModel, User, HistoryBusinessModel
 from core.services.utils import model_representation, output_exception
-from deduplication.validations import CreateDeduplicationReviewTasksValidation
+from deduplication.validations import CreateDeduplicationReviewTasksValidation, \
+    CreateDeduplicationPaymentReviewTasksValidation
 from individual.models import Individual
 from payroll.models import BenefitConsumption, BenefitConsumptionStatus, \
     PayrollBenefitConsumption, PayrollStatus
@@ -132,6 +133,114 @@ class CreateDeduplicationReviewTasksService:
 
         serialized_data['headers'] = get_headers(benefit_plan)
 
+        return serialized_data
+
+    @classmethod
+    def get_class_name(cls):
+        return cls.__name__
+
+    @lru_cache(maxsize=None)
+    def _get_excluded_model_fields(self, exclude_json_ext=True):
+        fields_to_exclude = set(field.name for field in HistoryBusinessModel._meta.fields)
+        if not exclude_json_ext:
+            fields_to_exclude.discard('json_ext')
+
+        return fields_to_exclude
+
+
+class CreateDeduplicationPaymentReviewTasksService:
+    def __init__(self, user, validation_class=CreateDeduplicationPaymentReviewTasksValidation):
+        self.user = user
+        self.validation_class = validation_class
+
+    def create_payment_benefit_duplication_tasks(self, summary):
+        try:
+            task_service = TaskService(self.user)
+            tasks = []
+
+            for task_data in summary:
+                self.validation_class.validate_create_deduplication_task(task_data, self.get_class_name())
+                create_task_data = {
+                    'source': self.get_class_name(),
+                    'executor_action_event': TasksManagementConfig.default_executor_event,
+                    'business_data_serializer': (
+                        'deduplication.services.CreateDeduplicationPaymentReviewTasksService'
+                        '.create_payment_benefit_duplication_task_serializer'
+                    ),
+                    'business_event': '',
+                    'data': task_data,
+                }
+                tasks.append(task_service.create(create_task_data))
+
+            return {
+                "success": True, "message": "Ok", "detail": "", "data": tasks,
+            }
+        except Exception as exc:
+            return output_exception(model_name='', method="create_payment_benefit_duplication_tasks", exception=exc)
+
+    def create_payment_benefit_duplication_task_serializer(self, data):
+        def serialize_individual(value):
+            excluded_fields = self._get_excluded_model_fields()
+            individual = Individual.objects.filter(id=value).first()
+            individual_dict = model_representation(individual)
+
+            exclude_fields_from_dict(individual_dict, excluded_fields)
+
+            for k, v in individual_dict.items():
+                individual_dict[k] = serialize_value(v)
+
+            return individual_dict
+
+        def serialize_value(value):
+            if any(isinstance(value, t) for t in non_serializable_types):
+                return str(value)
+            return value
+
+        def exclude_fields_from_dict(dictionary, fields_to_exclude):
+            for field in fields_to_exclude:
+                dictionary.pop(field, None)
+
+        def benefit_serializer(data):
+            for key, value in data.items():
+                if key == 'individual':
+                    data[key] = serialize_individual(value)
+                else:
+                    data[key] = serialize_value(value)
+            return data
+
+        def get_headers():
+            individual_fields = [field.name for field in Individual._meta.fields]
+            benefit_fields = [field.name for field in BenefitConsumption._meta.fields]
+
+            excluded_fields = self._get_excluded_model_fields()
+            headers = [field for field in individual_fields + benefit_fields if
+                       field not in excluded_fields]
+
+            return headers
+
+        def serializer(key, value):
+            excluded_fields = self._get_excluded_model_fields(exclude_json_ext=False)
+            excluded_fields.discard("date_created")
+            excluded_fields.discard("is_deleted")
+            if key == 'ids':
+                benefits_list = []
+                benefits = BenefitConsumption.objects.filter(id__in=value)
+
+                for benefit in benefits:
+                    benefit_dict = model_representation(benefit)
+                    exclude_fields_from_dict(benefit_dict, excluded_fields)
+
+                    benefit_dict = benefit_serializer(benefit_dict)
+                    benefits_list.append(benefit_dict)
+
+                return benefits_list
+            else:
+                return serialize_value(value)
+
+        serialized_data = copy.deepcopy(data)
+        for key, value in data.items():
+            serialized_data[key] = serializer(key, value)
+        serialized_data['headers'] = get_headers()
         return serialized_data
 
     @classmethod

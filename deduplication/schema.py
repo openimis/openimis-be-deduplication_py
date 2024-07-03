@@ -1,9 +1,7 @@
-import json
-
 import graphene
 from django.contrib.auth.models import AnonymousUser
 
-from deduplication.gql_mutations import CreateDeduplicationReviewMutation
+from deduplication.gql_mutations import CreateDeduplicationReviewMutation, CreateDeduplicationPaymentReviewMutation
 from deduplication.gql_queries import DeduplicationSummaryGQLType, DeduplicationSummaryRowGQLType
 
 
@@ -79,3 +77,4 @@ class Query(graphene.ObjectType):
 
 class Mutation(graphene.ObjectType):
     create_deduplication_tasks = CreateDeduplicationReviewMutation.Field()
+    create_deduplication_payment_tasks = CreateDeduplicationPaymentReviewMutation.Field()
