@@ -7,7 +7,7 @@ from datetime import datetime
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.exceptions import FieldDoesNotExist
 from django.db import models
-from django.db.models import Count, Q, F
+from django.db.models import Count, Q
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
 from django.db import transaction
@@ -18,8 +18,9 @@ from core.services.utils import model_representation, output_exception
 from deduplication.validations import CreateDeduplicationReviewTasksValidation, \
     CreateDeduplicationPaymentReviewTasksValidation
 from individual.models import Individual
+from invoice.models import Bill, BillItem
 from payroll.models import BenefitConsumption, BenefitConsumptionStatus, \
-    PayrollBenefitConsumption, PayrollStatus
+    PayrollBenefitConsumption, PayrollStatus, BenefitAttachment
 from social_protection.models import Beneficiary, BenefitPlan
 from tasks_management.apps import TasksManagementConfig
 from tasks_management.models import Task
@@ -206,6 +207,15 @@ class CreateDeduplicationPaymentReviewTasksService:
                     data[key] = serialize_individual(value)
                 else:
                     data[key] = serialize_value(value)
+            payroll_benefit = PayrollBenefitConsumption.objects.filter(benefit=data['benefit']).first()
+            if payroll_benefit:
+                payroll = payroll_benefit.payroll
+                data['payroll_name'] = payroll.name if payroll else None
+                data['payment_cycle'] = \
+                    payroll.payment_cycle.code if payroll and payroll.payment_cycle else None
+            else:
+                data['payroll_name'] = ""
+                data['payment_cycle'] = ""
             return data
 
         def get_headers():
@@ -215,7 +225,9 @@ class CreateDeduplicationPaymentReviewTasksService:
             excluded_fields = self._get_excluded_model_fields()
             headers = [field for field in individual_fields + benefit_fields if
                        field not in excluded_fields]
-
+            headers.insert(0, 'benefit')
+            headers.insert(1, 'payroll_name')
+            headers.insert(2, 'payment_cycle')
             return headers
 
         def serializer(key, value):
@@ -229,14 +241,13 @@ class CreateDeduplicationPaymentReviewTasksService:
                 for benefit in benefits:
                     benefit_dict = model_representation(benefit)
                     exclude_fields_from_dict(benefit_dict, excluded_fields)
-
+                    benefit_dict['benefit'] = benefit.id
                     benefit_dict = benefit_serializer(benefit_dict)
                     benefits_list.append(benefit_dict)
 
                 return benefits_list
             else:
                 return serialize_value(value)
-
         serialized_data = copy.deepcopy(data)
         for key, value in data.items():
             serialized_data[key] = serializer(key, value)
@@ -429,6 +440,50 @@ def on_deduplication_task_complete_service_handler(**kwargs):
         if (result and result['success'] and task['status'] == Task.Status.COMPLETED
                 and source == CreateDeduplicationReviewTasksService.get_class_name()):
             merge_duplicate_beneficiaries(task, user_id)
+    except Exception as e:
+        logger.error("Error while executing on_task_complete", exc_info=e)
+        return [str(e)]
+
+
+@transaction.atomic
+def remove_duplicate_benefit_payments(task_data):
+    # additional_resolve_data is a key in task__json_ext that stores data selected by user during resolving a task
+    additional_resolve_data = task_data.get("json_ext", {}).get("additional_resolve_data", {})
+    merge_data = list(additional_resolve_data.values())[0]
+    benefit_ids = merge_data.get("benefitIds", [])
+    benefits_to_delete = BenefitConsumption.objects.filter(id__in=benefit_ids)\
+        .values_list('id', 'benefitattachment__bill')
+    if len(benefits_to_delete) > 0:
+        benefits, related_bills = zip(*benefits_to_delete)
+
+        BenefitAttachment.objects.filter(
+            benefit_id__in=benefits
+        ).delete()
+
+        BillItem.objects.filter(
+            bill__id__in=related_bills
+        ).delete()
+
+        Bill.objects.filter(
+            id__in=related_bills
+        ).delete()
+
+        PayrollBenefitConsumption.objects.filter(benefit__id__in=benefits).delete()
+
+        BenefitConsumption.objects.filter(
+            id__in=benefits,
+            is_deleted=False
+        ).delete()
+
+
+def on_payment_benefit_deduplication_task_complete_service_handler(**kwargs):
+    try:
+        result = kwargs.get('result', {})
+        task = result['data']['task']
+        source = result['data']['task']["source"]
+        if (result and result['success'] and task['status'] == Task.Status.COMPLETED
+                and source == CreateDeduplicationPaymentReviewTasksService.get_class_name()):
+            remove_duplicate_benefit_payments(task)
     except Exception as e:
         logger.error("Error while executing on_task_complete", exc_info=e)
         return [str(e)]
