@@ -62,6 +62,7 @@ class CreateDeduplicationPaymentReviewMutation(OpenIMISMutation):
 
     class Input(OpenIMISMutation.Input):
         summary = graphene.List(SummaryGQLType, required=True)
+        payment_cycle = graphene.String(required=False)
 
     @classmethod
     def _validate(cls, user, **data):
@@ -83,9 +84,10 @@ class CreateDeduplicationPaymentReviewMutation(OpenIMISMutation):
                 data.pop('client_mutation_label')
 
             summary = data.get("summary")
+            payment_cycle_id = data.get("payment_cycle")
 
             service = CreateDeduplicationPaymentReviewTasksService(user)
-            res = service.create_payment_benefit_duplication_tasks(summary)
+            res = service.create_payment_benefit_duplication_tasks(summary, payment_cycle_id)
             return res if not res['success'] else None
         except Exception as exc:
             return [
