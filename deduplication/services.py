@@ -21,6 +21,7 @@ from individual.models import Individual
 from invoice.models import Bill, BillItem
 from payroll.models import BenefitConsumption, BenefitConsumptionStatus, \
     PayrollBenefitConsumption, PayrollStatus, BenefitAttachment
+from payment_cycle.models import PaymentCycle
 from social_protection.models import Beneficiary, BenefitPlan
 from tasks_management.apps import TasksManagementConfig
 from tasks_management.models import Task
@@ -154,11 +155,11 @@ class CreateDeduplicationPaymentReviewTasksService:
         self.user = user
         self.validation_class = validation_class
 
-    def create_payment_benefit_duplication_tasks(self, summary):
+    def create_payment_benefit_duplication_tasks(self, summary, payment_cycle_id):
         try:
             task_service = TaskService(self.user)
             tasks = []
-
+            payment_cycle = PaymentCycle.objects.get(id=payment_cycle_id)
             for task_data in summary:
                 self.validation_class.validate_create_deduplication_task(task_data, self.get_class_name())
                 create_task_data = {
@@ -169,6 +170,7 @@ class CreateDeduplicationPaymentReviewTasksService:
                         '.create_payment_benefit_duplication_task_serializer'
                     ),
                     'business_event': '',
+                    'entity': payment_cycle,
                     'data': task_data,
                 }
                 tasks.append(task_service.create(create_task_data))
