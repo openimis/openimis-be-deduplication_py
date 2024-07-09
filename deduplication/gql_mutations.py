@@ -85,7 +85,6 @@ class CreateDeduplicationPaymentReviewMutation(OpenIMISMutation):
 
             summary = data.get("summary")
             payment_cycle_id = data.get("payment_cycle")
-
             service = CreateDeduplicationPaymentReviewTasksService(user)
             res = service.create_payment_benefit_duplication_tasks(summary, payment_cycle_id)
             return res if not res['success'] else None

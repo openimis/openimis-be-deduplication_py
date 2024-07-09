@@ -174,12 +174,22 @@ class CreateDeduplicationPaymentReviewTasksService:
                     'data': task_data,
                 }
                 tasks.append(task_service.create(create_task_data))
-
+                self.flag_duplicated_benefit_payments(task_data)
             return {
                 "success": True, "message": "Ok", "detail": "", "data": tasks,
             }
         except Exception as exc:
             return output_exception(model_name='', method="create_payment_benefit_duplication_tasks", exception=exc)
+
+    def flag_duplicated_benefit_payments(self, task_data):
+        # flag payroll marked as duplicated
+        benefits = BenefitConsumption.objects.filter(id__in=task_data['ids'])
+        for benefit in benefits:
+            json_ext_benefit = benefit.json_ext if benefit.json_ext else {}
+            if 'duplicated' not in json_ext_benefit:
+                json_ext_benefit['duplicated'] = 'duplicated'
+                benefit.json_ext = json_ext_benefit
+                benefit.save(username=self.user.username)
 
     def create_payment_benefit_duplication_task_serializer(self, data):
         def serialize_individual(value):
