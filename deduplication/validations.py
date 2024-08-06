@@ -133,7 +133,7 @@ class CreateDeduplicationPaymentReviewTasksValidation:
                 ),
                 *cls._validate_no_errors(
                     benefits_in_task,
-                    "deduplication.validations.CreateDeduplicationPaymentReviewTasksValidation.beneficiary_in_task",
+                    "deduplication.please_solve_the_created_tasks_first",
                     "benefits"
                 )
             ]
