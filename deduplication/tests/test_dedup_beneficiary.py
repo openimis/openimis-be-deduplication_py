@@ -41,7 +41,6 @@ class DedupBeneficiaryTestCase(TestCase):
             cls.bens.append(b)
 
     def test_deduplication_aggregation(self):
-        print(connection.vendor, 'connection.vendor')
         if connection.vendor == 'microsoft':
             self.skipTest("This test can only be executed for PSQL database")
         else:
