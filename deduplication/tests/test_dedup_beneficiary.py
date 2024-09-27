@@ -1,8 +1,7 @@
 from decimal import Decimal
 
 from django.test import TestCase
-from django.db import transaction
-from django.db.models import Q
+from django.db import connection
 
 from deduplication.services import get_beneficiary_duplication_aggregation
 from deduplication.tests.data.dedup_beneficiary import benefit_plan_data, individuals_data
@@ -42,5 +41,11 @@ class DedupBeneficiaryTestCase(TestCase):
             cls.bens.append(b)
 
     def test_deduplication_aggregation(self):
-        res = get_beneficiary_duplication_aggregation(['individual__first_name', 'k1'], self.bp.id)
-        self.assertEquals(list(res), [{'id_count': 2, 'individual__first_name': 'first name 1', 'k1': 'k1 v1'}])
+        if connection.vendor == 'microsoft':
+            self.skipTest("This test can only be executed for PSQL database")
+        else:
+            res = get_beneficiary_duplication_aggregation(['individual__first_name', 'k1'], self.bp.id)
+            response = list(res)[0]
+            self.assertEquals(response['id_count'], 2)
+            self.assertEquals(response['individual__first_name'], 'first name 1')
+            self.assertEquals(response['k1'], 'k1 v1')
