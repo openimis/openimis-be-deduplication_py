@@ -41,6 +41,7 @@ class DedupBeneficiaryTestCase(TestCase):
             self.skipTest("This test can only be executed for PSQL database")
         else:
             res = get_beneficiary_duplication_aggregation(['individual__first_name', 'k1'], self.bp.id)
+            print(res)
             response = list(res)[0]
             self.assertEquals(response['id_count'], 2)
             self.assertEquals(response['individual__first_name'], 'first name 1')
