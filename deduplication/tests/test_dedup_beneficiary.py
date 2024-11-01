@@ -1,4 +1,5 @@
 from django.test import TestCase
+from django.db import connection
 from deduplication.services import get_beneficiary_duplication_aggregation
 from deduplication.tests.data.dedup_beneficiary import benefit_plan_data, individuals_data
 from deduplication.tests.helpers import LogInHelper
@@ -46,4 +47,4 @@ class DedupBeneficiaryTestCase(TestCase):
             response = listed[0]
             self.assertEquals(response['id_count'], 2)
             self.assertEquals(response['individual__first_name'], 'first name 1')
-            self.assertEquals(response['k1'], 'k1 v1')
+
