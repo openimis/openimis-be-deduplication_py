@@ -15,6 +15,7 @@ from django.db import transaction
 from core.datetimes.ad_datetime import AdDate
 from core.models import ExtendableModel, HistoryModel, User, HistoryBusinessModel
 from core.services.utils import model_representation, output_exception
+from core.utils import to_json_safe_value
 from deduplication.validations import CreateDeduplicationReviewTasksValidation, \
     CreateDeduplicationPaymentReviewTasksValidation
 from individual.models import Individual
@@ -25,7 +26,7 @@ from payment_cycle.models import PaymentCycle
 from social_protection.models import Beneficiary, BenefitPlan
 from tasks_management.apps import TasksManagementConfig
 from tasks_management.models import Task
-from tasks_management.services import TaskService, non_serializable_types
+from tasks_management.services import TaskService
 
 logger = logging.getLogger(__name__)
 
@@ -69,18 +70,13 @@ class CreateDeduplicationReviewTasksService:
             exclude_fields_from_dict(individual_dict, excluded_fields)
 
             for k, v in individual_dict.items():
-                individual_dict[k] = serialize_value(v)
+                individual_dict[k] = to_json_safe_value(v)
 
             return individual_dict
 
         def serialize_benefit_plan(value):
             benefit_plan = BenefitPlan.objects.filter(id=value).first()
             return benefit_plan.__str__()
-
-        def serialize_value(value):
-            if any(isinstance(value, t) for t in non_serializable_types):
-                return str(value)
-            return value
 
         def exclude_fields_from_dict(dictionary, fields_to_exclude):
             for field in fields_to_exclude:
@@ -93,7 +89,7 @@ class CreateDeduplicationReviewTasksService:
                 elif key == 'benefit_plan':
                     data[key] = serialize_benefit_plan(value)
                 else:
-                    data[key] = serialize_value(value)
+                    data[key] = to_json_safe_value(value)
             return data
 
         def get_headers(benefit_plan):
@@ -125,7 +121,7 @@ class CreateDeduplicationReviewTasksService:
 
                 return beneficiary_list
             else:
-                return serialize_value(value)
+                return to_json_safe_value(value)
 
         serialized_data = copy.deepcopy(data)
         beneficiary_id = serialized_data['ids'][0]
@@ -200,14 +196,9 @@ class CreateDeduplicationPaymentReviewTasksService:
             exclude_fields_from_dict(individual_dict, excluded_fields)
 
             for k, v in individual_dict.items():
-                individual_dict[k] = serialize_value(v)
+                individual_dict[k] = to_json_safe_value(v)
 
             return individual_dict
-
-        def serialize_value(value):
-            if any(isinstance(value, t) for t in non_serializable_types):
-                return str(value)
-            return value
 
         def exclude_fields_from_dict(dictionary, fields_to_exclude):
             for field in fields_to_exclude:
@@ -218,7 +209,7 @@ class CreateDeduplicationPaymentReviewTasksService:
                 if key == 'individual':
                     data[key] = serialize_individual(value)
                 else:
-                    data[key] = serialize_value(value)
+                    data[key] = to_json_safe_value(value)
             payroll_benefit = PayrollBenefitConsumption.objects.filter(benefit=data['benefit']).first()
             if payroll_benefit:
                 payroll = payroll_benefit.payroll
@@ -259,7 +250,7 @@ class CreateDeduplicationPaymentReviewTasksService:
 
                 return benefits_list
             else:
-                return serialize_value(value)
+                return to_json_safe_value(value)
         serialized_data = copy.deepcopy(data)
         for key, value in data.items():
             serialized_data[key] = serializer(key, value)
