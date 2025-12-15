@@ -185,7 +185,7 @@ class CreateDeduplicationPaymentReviewTasksService:
             if 'duplicated' not in json_ext_benefit:
                 json_ext_benefit['duplicated'] = 'duplicated'
                 benefit.json_ext = json_ext_benefit
-                benefit.save(username=self.user.username)
+                benefit.save(user=self.user)
 
     def create_payment_benefit_duplication_task_serializer(self, data):
         def serialize_individual(value):
