@@ -5,7 +5,6 @@ from django.core.exceptions import ValidationError, PermissionDenied
 from core.schema import OpenIMISMutation
 from deduplication.apps import DeduplicationConfig
 from deduplication.services import (
-    get_beneficiary_duplication_aggregation,
     CreateDeduplicationReviewTasksService,
     CreateDeduplicationPaymentReviewTasksService,
 )

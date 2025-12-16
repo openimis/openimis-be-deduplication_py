@@ -5,7 +5,7 @@ from deduplication.tests.data.dedup_beneficiary import benefit_plan_data, indivi
 from deduplication.tests.helpers import LogInHelper
 from individual.models import Individual
 from social_protection.models import Beneficiary, BenefitPlan, BeneficiaryStatus
-from django.db import connection
+
 
 class DedupBeneficiaryTestCase(TestCase):
     user = None
@@ -47,4 +47,3 @@ class DedupBeneficiaryTestCase(TestCase):
             response = listed[0]
             self.assertEquals(response['id_count'], 2)
             self.assertEquals(response['individual__first_name'], 'first name 1')
-

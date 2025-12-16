@@ -321,8 +321,11 @@ def get_duplication_aggregation(model: Union[Type[ExtendableModel], Type[History
     return queryset
 
 
-def get_duplication_benefit_aggregation(model: Union[Type[ExtendableModel], Type[HistoryModel]], columns: List[str] = None,
-                                json_ext_keys: List[str] = None, filters: List = None):
+def get_duplication_benefit_aggregation(
+    model: Union[Type[ExtendableModel], Type[HistoryModel]],
+    columns: List[str] = None,
+    json_ext_keys: List[str] = None, filters: List = None
+):
     queryset = model.objects.filter(*filters).select_related('individual')
     if json_ext_keys:
         json_ext_aggr = {key: Cast(KeyTextTransform(key, 'individual__json_ext'), models.TextField())
@@ -341,7 +344,7 @@ def get_duplication_benefit_aggregation(model: Union[Type[ExtendableModel], Type
 
 
 def _resolve_columns(model: Union[Type[ExtendableModel], Type[HistoryModel]], columns: List[str]) -> Tuple[
-    List[str], List[str]]:
+        List[str], List[str]]:
     fields = []
     json_fields = []
     for column in columns:
