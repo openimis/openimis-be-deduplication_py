@@ -1,4 +1,4 @@
-from core.test_helpers import create_test_interactive_user
+from core.test_helpers import create_test_interactive_user, create_admin_role
 
 
 class LogInHelper:
@@ -10,7 +10,7 @@ class LogInHelper:
         "other_names": _TEST_USER_NAME,
         "user_types": "INTERACTIVE",
         "language": "en",
-        "roles": [1],
+        "roles": [create_admin_role().id],
     }
 
     def get_or_create_user_api(self):
