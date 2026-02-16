@@ -43,7 +43,7 @@ class DedupBeneficiaryTestCase(TestCase):
         else:
             res = get_beneficiary_duplication_aggregation(['individual__first_name', 'k1'], self.bp.id)
             listed = list(res)
-            self.assertEquals(len(listed), 1)
+            self.assertEqual(len(listed), 1)
             response = listed[0]
-            self.assertEquals(response['id_count'], 2)
-            self.assertEquals(response['individual__first_name'], 'first name 1')
+            self.assertEqual(response['id_count'], 2)
+            self.assertEqual(response['individual__first_name'], 'first name 1')
