@@ -4,26 +4,27 @@ from core.rights_declaration import RightsDeclaration
 
 MODULE_NAME = "deduplication"
 
-# Droits, par entite puis par action.
+# Rights, by entity then by action.
 #
-# Deux entites et non une seule a deux actions : les deux droits ne portent pas sur le
-# meme objet metier. 172001 cree des taches de revue de doublons de *beneficiaires*
-# (social_protection.Beneficiary), 172002 des taches de revue de doublons de
-# *paiements* (payroll.BenefitConsumption) ; mutations, services et validations sont
-# distincts de bout en bout. Chacune n'a donc qu'une action, `create`.
+# Two entities rather than a single one with two actions: the two rights do not bear on
+# the same business object. 172001 creates review tasks for *beneficiary* duplicates
+# (social_protection.Beneficiary), 172002 for *payment* duplicates
+# (payroll.BenefitConsumption); mutations, services and validations are distinct end to
+# end. Each therefore has a single action, `create`.
 #
-# Les noms django restent purement declaratifs ici : ce module n'a aucun modele
-# (models.py est vide), la revue est materialisee par un tasks_management.Task. Le
-# prefixe reste `deduplication` parce que c'est ce module qui declare et applique le
-# droit, meme si aucune permission django ne sera creee au post_migrate.
+# The django names stay purely declarative here: this module has no model at all
+# (models.py is empty), the review being materialised by a tasks_management.Task. The
+# prefix stays `deduplication` because this module is the one that declares and
+# enforces the right, even though no django permission will be created at
+# post_migrate.
 DJANGO_PERMS = {
     "deduplicationReview": {
         "create": ("deduplication.add_deduplicationreview", 172001),
     },
-    # Droit dormant : declare et expose dans l'ecran des roles, mais aucun controle ne
-    # le lit. `CreateDeduplicationPaymentReviewMutation._validate`
-    # (gql_mutations.py) verifie 172001. L'ecart est signale, pas corrige : le corriger
-    # retirerait l'acces aux roles qui n'ont que 172001.
+    # Dormant right: declared and exposed in the roles screen, but no check reads it.
+    # `CreateDeduplicationPaymentReviewMutation._validate` (gql_mutations.py) checks
+    # 172001. The discrepancy is reported, not fixed: fixing it would withdraw access
+    # from the roles that only have 172001.
     "paymentDeduplicationReview": {
         "create": ("deduplication.add_paymentdeduplicationreview", 172002),
     },

@@ -1,17 +1,17 @@
 """
-Garde-fous sur la declaration des droits de deduplication.
+Guard rails on deduplication's rights declaration.
 
-Meme structure que `claim` : `DJANGO_PERMS` par entite puis par action, `_PERM_CFG` qui
-en derive les cles de config. Ce module n'a aucun modele (models.py est vide), donc pas
-de `get_rights` a epingler : les objets dedupliques appartiennent a social_protection et
-payroll, et la revue elle-meme est un tasks_management.Task.
+Same structure as `claim`: `DJANGO_PERMS` by entity then by action, `_PERM_CFG`
+deriving the config keys from it. This module has no model at all (models.py is empty),
+so there is no `get_rights` to pin down: the deduplicated objects belong to
+social_protection and payroll, and the review itself is a tasks_management.Task.
 
-Ce qui est verrouille ici :
-  * un identifiant a un seul endroit (DJANGO_PERMS), donc pas de derive entre la
-    declaration et le controle ;
-  * une cle de config sans attribut de classe n'est jamais chargee par `__load_config`
-    et sa lecture leve AttributeError - le droit devient inapplicable ;
-  * `has_perms([])` renvoie True, donc une liste vide accorde a tous.
+What is locked down here:
+  * an identifier in one place only (DJANGO_PERMS), hence no drift between the
+    declaration and the check;
+  * a config key with no class attribute is never loaded by `__load_config` and
+    reading it raises AttributeError - the right becomes unenforceable;
+  * `has_perms([])` returns True, so an empty list grants to everybody.
 """
 
 import json
@@ -35,9 +35,9 @@ EXPECTED_RIGHTS = {
     "gql_create_deduplication_payment_review_perms": ["172002"],
 }
 
-# Nom historique dans permissions_map.json -> identifiant. Le nom django declare dans
-# DJANGO_PERMS est neuf ; la carte, elle, porte encore les noms d'origine. C'est
-# l'entier qui doit correspondre.
+# Historical name in permissions_map.json -> identifier. The django name declared in
+# DJANGO_PERMS is new; the map still carries the original names. It is the integer that
+# has to match.
 EXPECTED_MAP_ENTRIES = {
     "deduplication.create_deduplication_review": "172001",
     "deduplication.create_deduplication_payment_review": "172002",
@@ -78,7 +78,7 @@ class DeduplicationPermissionDeclarationTestCase(TestCase):
                 self.assertEqual(getattr(DeduplicationConfig, key), perms(entity, action))
 
     def test_no_right_id_is_shared(self):
-        """Les deux revues sont deux objets distincts : aucun partage d'identifiant."""
+        """The two reviews are two distinct objects: no identifier sharing."""
         seen = {}
         for entity, actions in DJANGO_PERMS.items():
             for action, (_, right_id) in actions.items():
@@ -128,7 +128,7 @@ class DeduplicationPermissionDeclarationTestCase(TestCase):
         self.assertIsNone(configured_perms("deduplicationReview", "nosuchaction"))
 
     def test_right_ids_match_the_permissions_map(self):
-        """L'entier est ce que portent les roles ; la carte doit dire la meme chose."""
+        """The integer is what the roles carry; the map has to say the same thing."""
         from django.conf import settings
 
         candidates = [

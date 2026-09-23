@@ -6,12 +6,13 @@ from deduplication.gql_queries import DeduplicationSummaryGQLType, Deduplication
 
 
 class Query(graphene.ObjectType):
-    # Nom d'un autre module, et sans effet ici : `module_name` n'est lu que par
-    # `core.gql.export_mixin.ExportableQueryMixin.get_module_name` (routage des
-    # customFilters), dont cette Query n'herite pas. L'ancrage des droits, lui, se fait
-    # par AppConfig (`core.utils.collect_all_gql_permissions` parcourt les app configs),
-    # donc les droits de ce module restent annonces sous "deduplication". Laisse tel
-    # quel : attribut mort, mais le supprimer ne gagne rien et sort du lot.
+    # Another module's name, and without effect here: `module_name` is only read by
+    # `core.gql.export_mixin.ExportableQueryMixin.get_module_name` (customFilters
+    # routing), which this Query does not inherit from. The rights, for their part, are
+    # anchored per AppConfig (`core.utils.collect_all_gql_permissions` walks the app
+    # configs), so this module's rights stay announced under "deduplication". Left as
+    # it is: a dead attribute, but removing it gains nothing and falls outside this
+    # batch of work.
     module_name = "tasks_management"
 
     beneficiary_deduplication_summary = graphene.Field(
@@ -30,10 +31,10 @@ class Query(graphene.ObjectType):
         from social_protection.apps import SocialProtectionConfig
         from deduplication.services import get_beneficiary_duplication_aggregation
 
-        # Emprunt au droit d'un autre module, non justifie a l'origine et laisse en
-        # l'etat : la lecture du resume de doublons est gardee par le droit de recherche
-        # des beneficiaires de social_protection (170001), pas par un droit de
-        # deduplication. Signale par l'audit, a traiter dans le lot autorisations.
+        # A borrowing of another module's right, unjustified from the start and left
+        # as it stands: reading the duplicates summary is guarded by
+        # social_protection's beneficiary search right (170001), not by a deduplication
+        # right. Reported by the audit, to be dealt with in the authorisation batch.
         Query._check_permissions(info.context.user, SocialProtectionConfig.gql_beneficiary_search_perms)
 
         if not columns:
@@ -59,9 +60,9 @@ class Query(graphene.ObjectType):
         from deduplication.services import get_benefit_consumption_duplication_aggregation
 
         # Check permissions
-        # Meme emprunt que ci-dessus, et plus eloigne encore : ce resume porte sur des
-        # BenefitConsumption (payroll) mais est garde par le droit de recherche des
-        # beneficiaires de social_protection (170001). Non corrige ici.
+        # The same borrowing as above, and further removed still: this summary bears
+        # on BenefitConsumption rows (payroll) but is guarded by social_protection's
+        # beneficiary search right (170001). Not fixed here.
         Query._check_permissions(info.context.user, SocialProtectionConfig.gql_beneficiary_search_perms)
 
         if not columns:
