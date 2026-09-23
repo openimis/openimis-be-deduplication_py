@@ -68,6 +68,11 @@ class CreateDeduplicationPaymentReviewMutation(OpenIMISMutation):
         summary = data.get("summary")
         if type(user) is AnonymousUser or not user.id:
             raise ValidationError("mutation.authentication_required")
+        # Ecart connu, laisse en l'etat : cette mutation *paiement* controle le droit de
+        # la revue beneficiaire (172001), si bien que
+        # gql_create_deduplication_payment_review_perms (172002) est declare mais lu
+        # nulle part. Le passer a 172002 retirerait l'acces aux roles qui ne portent que
+        # 172001 ; c'est un autre lot que la declaration des droits.
         if not user.has_perms(DeduplicationConfig.gql_create_deduplication_review_perms):
             raise PermissionDenied("unauthorized")
         if not summary or len(summary) == 0:
