@@ -50,9 +50,9 @@ class DeduplicationConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = MODULE_NAME
 
-    # Droits: constantes, plus surchargeables. Ils ne passent plus par le
-    # DEFAULT_CFG ni par ready(): `ModuleConfiguration.get_or_default` ignore
-    # desormais toute cle `_perms` stockee en base.
+    # Rights: constants, no longer overridable. They go neither through DEFAULT_CFG
+    # nor through ready(): `ModuleConfiguration.get_or_default` now ignores any
+    # `_perms` key stored in the database.
     gql_create_deduplication_review_perms = RIGHTS.perms("deduplicationReview", "create")
     gql_create_deduplication_payment_review_perms = RIGHTS.perms("paymentDeduplicationReview", "create")
 

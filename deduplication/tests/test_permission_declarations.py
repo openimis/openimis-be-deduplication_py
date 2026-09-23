@@ -28,8 +28,8 @@ from deduplication.apps import (
     perms,
 )
 
-# Les identifiants tels que deployes. En changer un est incompatible avec les roles
-# existants : il faut mettre ce test a jour *et* accorder le nouveau droit.
+# The identifiers as deployed. Changing one is incompatible with the existing roles:
+# this test has to be updated *and* the new right granted.
 EXPECTED_RIGHTS = {
     "gql_create_deduplication_review_perms": ["172001"],
     "gql_create_deduplication_payment_review_perms": ["172002"],
@@ -60,7 +60,7 @@ class DeduplicationPermissionDeclarationTestCase(TestCase):
         self.assertEqual(set(_PERM_CFG.values()), declared)
 
     def test_perm_cfg_matches_config_attributes(self):
-        """`__load_config` ignore les cles sans attribut de classe."""
+        """`__load_config` ignores the keys with no class attribute."""
         missing = [key for key in _PERM_CFG if not hasattr(DeduplicationConfig, key)]
         self.assertEqual(missing, [])
 
@@ -70,8 +70,8 @@ class DeduplicationPermissionDeclarationTestCase(TestCase):
 
     def test_attributes_carry_the_declared_right(self):
         """
-        Les droits sont des constantes posees depuis DJANGO_PERMS : l'attribut doit
-        valoir la declaration, sans passer par la config.
+        The rights are constants set from DJANGO_PERMS: the attribute must equal the
+        declaration, without going through the config.
         """
         for key, (entity, action) in _PERM_CFG.items():
             with self.subTest(key=key):
@@ -110,8 +110,8 @@ class DeduplicationPermissionDeclarationTestCase(TestCase):
 
     def test_configured_reads_the_configured_value_not_the_declared_default(self):
         """
-        ModuleConfiguration peut surcharger un droit ; un controle doit lire la valeur
-        configuree, la ou `perms()` renvoie le defaut declare.
+        ModuleConfiguration may override a right; a check must read the configured
+        value, where `perms()` returns the declared default.
         """
         original = DeduplicationConfig.gql_create_deduplication_review_perms
         try:
@@ -124,7 +124,7 @@ class DeduplicationPermissionDeclarationTestCase(TestCase):
             DeduplicationConfig.gql_create_deduplication_review_perms = original
 
     def test_configured_returns_none_for_an_undeclared_action(self):
-        """None signifie "aucune regle" : l'appelant doit echouer ferme."""
+        """None means "no rule": the caller must fail closed."""
         self.assertIsNone(configured_perms("deduplicationReview", "nosuchaction"))
 
     def test_right_ids_match_the_permissions_map(self):
