@@ -14,10 +14,9 @@ What is locked down here:
   * `has_perms([])` returns True, so an empty list grants to everybody.
 """
 
-import json
-import os
-
 from django.test import TestCase
+
+from core.utils import build_permissions_map
 
 from deduplication.apps import (
     DJANGO_PERMS,
@@ -129,17 +128,7 @@ class DeduplicationPermissionDeclarationTestCase(TestCase):
 
     def test_right_ids_match_the_permissions_map(self):
         """The integer is what the roles carry; the map has to say the same thing."""
-        from django.conf import settings
-
-        candidates = [
-            os.path.join(str(settings.BASE_DIR), "permissions_map.json"),
-            os.path.join(os.path.dirname(str(settings.BASE_DIR)), "permissions_map.json"),
-        ]
-        path = next((p for p in candidates if os.path.exists(p)), None)
-        if path is None:
-            self.skipTest("permissions_map.json introuvable depuis cet assemblage")
-        with open(path) as handle:
-            mapping = json.load(handle)
+        mapping = build_permissions_map()
         declared = {
             str(right_id)
             for actions in DJANGO_PERMS.values()
