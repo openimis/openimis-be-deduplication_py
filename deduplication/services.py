@@ -14,6 +14,8 @@ from django.db import transaction
 
 from core.datetimes.ad_datetime import AdDate
 from core.models import ExtendableModel, HistoryModel, User, HistoryBusinessModel
+from core.mutation_log_secrets import MASK
+from core.rights_scope import field_path_refusal, field_path_relations
 from core.services.utils import model_representation, output_exception
 from core.utils import to_json_safe_value
 from deduplication.validations import CreateDeduplicationReviewTasksValidation, \
@@ -270,7 +272,15 @@ class CreateDeduplicationPaymentReviewTasksService:
         return fields_to_exclude
 
 
+# The Individual columns the benefit summary reads through BenefitConsumption.individual.
+BENEFIT_INDIVIDUAL_COLUMNS = ('first_name', 'last_name', 'dob')
+
+
 def get_beneficiary_duplication_aggregation(columns: List[str] = None, benefit_plan_id: str = None):
+    return _beneficiary_duplication_aggregation(columns, benefit_plan_id)[0]
+
+
+def _beneficiary_duplication_aggregation(columns, benefit_plan_id):
     if not columns:
         raise ValueError("At least one column required")
     if not benefit_plan_id:
@@ -279,16 +289,34 @@ def get_beneficiary_duplication_aggregation(columns: List[str] = None, benefit_p
     db_columns, json_keys = _resolve_columns(Beneficiary, columns)
     filters = [Q(benefit_plan_id=benefit_plan_id), Q(is_deleted=False)]
 
-    return get_duplication_aggregation(Beneficiary, columns=db_columns, json_ext_keys=json_keys, filters=filters)
+    paths = {column: column for column in db_columns}
+    paths.update({key: f'json_ext__{key}' for key in json_keys})
+    aggregation = get_duplication_aggregation(
+        Beneficiary, columns=db_columns, json_ext_keys=json_keys, filters=filters)
+    return aggregation, paths
 
 
 def get_benefit_consumption_duplication_aggregation(columns: List[str] = None, payment_cycle_id: str = None):
+    return _benefit_consumption_duplication_aggregation(columns, payment_cycle_id)[0]
+
+
+def _benefit_consumption_duplication_aggregation(columns, payment_cycle_id):
     if not columns:
         raise ValueError("At least one column required")
     if not payment_cycle_id:
         raise ValueError("Payment Cycle not specified")
 
     db_columns, json_keys = _resolve_columns(Individual, columns)
+    # The paths actually read from BenefitConsumption rows, keyed by output column
+    # (see get_duplication_benefit_aggregation).
+    paths = {}
+    for column in db_columns:
+        path = f'individual__{column}' if column in BENEFIT_INDIVIDUAL_COLUMNS else column
+        paths[path] = path
+    paths.update({key: f'individual__json_ext__{key}' for key in json_keys})
+    for path in paths.values():
+        field_path_relations(BenefitConsumption, path)
+
     benefit_consumption_ids = PayrollBenefitConsumption.objects.filter(
         payroll__payment_cycle_id=payment_cycle_id,
         payroll__status=PayrollStatus.PENDING_APPROVAL
@@ -300,7 +328,51 @@ def get_benefit_consumption_duplication_aggregation(columns: List[str] = None, p
         Q(status=BenefitConsumptionStatus.ACCEPTED)
     ]
 
-    return get_duplication_benefit_aggregation(BenefitConsumption, columns=db_columns, json_ext_keys=json_keys, filters=filters)
+    aggregation = get_duplication_benefit_aggregation(
+        BenefitConsumption, columns=db_columns, json_ext_keys=json_keys, filters=filters)
+    return aggregation, paths
+
+
+def beneficiary_duplication_summary(user, columns: List[str], benefit_plan_id) -> List[dict]:
+    """Duplicate beneficiaries of a plan, values `user` may not read masked."""
+    aggregation, paths = _beneficiary_duplication_aggregation(columns, benefit_plan_id)
+    return _summary_rows(user, Beneficiary, aggregation, paths)
+
+
+def benefit_duplication_summary(user, columns: List[str], payment_cycle_id) -> List[dict]:
+    """Duplicate benefits of a payment cycle, values `user` may not read masked."""
+    aggregation, paths = _benefit_consumption_duplication_aggregation(columns, payment_cycle_id)
+    return _summary_rows(user, BenefitConsumption, aggregation, paths)
+
+
+def _summary_rows(user, model, aggregation, paths):
+    """
+    Rows of `aggregation` as ``{column_values, count, ids}``.
+
+    The aggregation groups on every requested column, readable or not: finding the
+    duplicates matters more than hiding a column from the grouping. What leaves the
+    backend is masked: the values of a column whose path crosses a relation to a model
+    `user` may not read (OP-3353, CVE-2026-82492).
+    """
+    masked = {
+        column for column, path in paths.items()
+        if field_path_refusal(user, model, path) is not None
+    }
+    if masked:
+        logger.info(
+            "deduplication summary on %s: values of %s masked for user %s",
+            model.__name__, sorted(masked), getattr(user, 'id', None),
+        )
+    rows = []
+    for row in aggregation:
+        count = row.pop('id_count')
+        ids = row.pop('ids')
+        column_values = {
+            column: MASK if column in masked else str(value)
+            for column, value in row.items()
+        }
+        rows.append({'column_values': column_values, 'count': count, 'ids': ids})
+    return rows
 
 
 def get_duplication_aggregation(model: Union[Type[ExtendableModel], Type[HistoryModel]], columns: List[str] = None,
@@ -332,8 +404,8 @@ def get_duplication_benefit_aggregation(
                          for key in json_ext_keys}
         queryset = queryset.annotate(**json_ext_aggr)
 
-    individual_columns = ['first_name', 'last_name', 'dob']
-    columns = [f'individual__{column}' if column in individual_columns else column for column in columns]
+    columns = [f'individual__{column}' if column in BENEFIT_INDIVIDUAL_COLUMNS else column
+               for column in columns]
     values = (columns or list()) + (json_ext_keys or list())
     if not values:
         raise ValueError("At least one column required")
@@ -345,12 +417,23 @@ def get_duplication_benefit_aggregation(
 
 def _resolve_columns(model: Union[Type[ExtendableModel], Type[HistoryModel]], columns: List[str]) -> Tuple[
         List[str], List[str]]:
+    """
+    Split `columns` into field paths of `model` and keys of its ``json_ext``.
+
+    Every column is validated in full, not only its first segment: a path matching
+    `core.mutation_log_secrets.is_secret_key`, a reverse relation, a lookup, or a JSON
+    key that is not a plain identifier raises `core.rights_scope.FieldPathRefused`
+    (a ValueError) - OP-3353, CVE-2026-82492. Rights are applied when the values leave
+    the backend (`_summary_rows`), not here: the grouping uses every column.
+    """
     fields = []
     json_fields = []
     for column in columns:
         if _is_model_column(model, column.split('__', 1)[0]):
+            field_path_relations(model, column)
             fields.append(column)
         else:
+            field_path_relations(model, f'json_ext__{column}')
             json_fields.append(column)
 
     return fields, json_fields
