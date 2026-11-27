@@ -25,7 +25,10 @@ from core.models.openimis_graphql_test_case import (
 )
 from core.mutation_log_secrets import MASK
 from core.test_helpers import create_right_only_user
-from deduplication.services import get_beneficiary_duplication_aggregation
+from deduplication.services import (
+    get_beneficiary_duplication_aggregation,
+    get_benefit_consumption_duplication_aggregation,
+)
 from deduplication.tests.data.dedup_beneficiary import benefit_plan_data, individuals_data
 from deduplication.tests.helpers import LogInHelper
 from individual.models import Individual
@@ -100,6 +103,13 @@ class DeduplicationColumnRightsTest(openIMISGraphQLTestCase):
         )
         self.assertIn("errors", content)
         self.assertNotIn(password_hash, json.dumps(content))
+
+    def test_secret_path_is_refused_by_the_benefit_service(self):
+        """The payment-cycle summary reads through BenefitConsumption: same refusal."""
+        with self.assertRaises(ValueError):
+            list(get_benefit_consumption_duplication_aggregation(
+                ["user_created__i_user__password"], "00000000-0000-0000-0000-000000000000"
+            ))
 
     def test_reverse_relation_path_is_refused_by_the_service(self):
         with self.assertRaises(ValueError):
