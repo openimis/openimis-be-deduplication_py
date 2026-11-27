@@ -29,7 +29,7 @@ class Query(graphene.ObjectType):
 
     def resolve_beneficiary_deduplication_summary(self, info, columns=None, benefit_plan_id=None, **kwargs):
         from social_protection.apps import SocialProtectionConfig
-        from deduplication.services import get_beneficiary_duplication_aggregation
+        from deduplication.services import beneficiary_duplication_summary
 
         # A borrowing of another module's right, unjustified from the start and left
         # as it stands: reading the duplicates summary is guarded by
@@ -42,22 +42,14 @@ class Query(graphene.ObjectType):
 
         individual_columns = ['first_name', 'last_name', 'dob']
         columns = [f'individual__{column}' if column in individual_columns else column for column in columns]
-        aggr = get_beneficiary_duplication_aggregation(columns=columns, benefit_plan_id=benefit_plan_id)
-        rows = list()
-        for row in aggr:
-            individual_columns = [f'individual__{column}' for column in individual_columns]
-            count = row.pop('id_count')
-            ids = row.pop('ids')
-            row_column_values = {column: str(row[column])
-                                 for
-                                 column in row}
-            rows.append(DeduplicationSummaryRowGQLType(column_values=row_column_values, count=count, ids=ids))
+        rows = beneficiary_duplication_summary(info.context.user, columns, benefit_plan_id)
+        rows = [DeduplicationSummaryRowGQLType(**row) for row in rows]
 
         return DeduplicationSummaryGQLType(rows=rows)
 
     def resolve_benefit_deduplication_summary(self, info, columns=None, payment_cycle_id=None, **kwargs):
         from social_protection.apps import SocialProtectionConfig
-        from deduplication.services import get_benefit_consumption_duplication_aggregation
+        from deduplication.services import benefit_duplication_summary
 
         # Check permissions
         # The same borrowing as above, and further removed still: this summary bears
@@ -68,18 +60,8 @@ class Query(graphene.ObjectType):
         if not columns:
             return ["deduplication.validation.no_columns_provided"]
 
-        # Add prefix to individual columns
-        individual_columns = ['first_name', 'last_name', 'dob']
-        columns = [f'{column}' if column in individual_columns else column for column in columns]
-
-        # Fetch the aggregation data
-        aggr = get_benefit_consumption_duplication_aggregation(columns=columns, payment_cycle_id=payment_cycle_id)
-        rows = []
-        for row in aggr:
-            count = row.pop('id_count')
-            ids = row.pop('ids')
-            row_column_values = {column: str(row[column]) for column in row}
-            rows.append(DeduplicationSummaryRowGQLType(column_values=row_column_values, count=count, ids=ids))
+        rows = benefit_duplication_summary(info.context.user, columns, payment_cycle_id)
+        rows = [DeduplicationSummaryRowGQLType(**row) for row in rows]
 
         return DeduplicationSummaryGQLType(rows=rows)
 
